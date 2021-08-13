@@ -1,0 +1,160 @@
+//McMaster Engineering Physics Research Co-op
+//COSIEF: Cost-effective Oxygen Sensors In Flexible Environments
+//Date: 2021/08/01
+//Oxygen Sensor Type: DFRobot Gravity: I2C Oxygen Sensor
+//Applied location: portable glovebox
+
+
+//**IMPORTANT CONSTANTS **// 
+bool ALARM_ON = true;          // If false, alarm will never be sounded / turned off
+
+bool SMART_ALARM = true;       // If true, alarm is only enabled if oxygen level dips below or onto the threshold first.
+                               // If false (and ALARM_ON is true), the alarm will sound whenever %O2 is greater than the oxygen level threshold 
+                               
+const float OXYGEN_LVL_THRESHOLD = 2.00;   //To two decimal places maximum. If the threshold is passed, the alarm will be sounded when %O2 increase
+
+
+//lcd display
+#include <LiquidCrystal.h>
+LiquidCrystal lcd(7,6,5,4,3,2);
+
+//Humidity Sensor Initialization
+#include "DHT.h"
+#define DHTPIN A3 //classify the digital pin the humidity sensor connected to
+#define DHTTYPE DHT22 
+DHT dht(DHTPIN, DHTTYPE); 
+
+//DFROBOT Oxygen Sensor Initialization
+#include "DFRobot_OxygenSensor.h"
+#define COLLECT_NUMBER   10   //collect number, the collection range is 1-100.
+#define Oxygen_IICAddress ADDRESS_3
+/*   iic slave Address, The default is ADDRESS_3.
+       ADDRESS_0               0x70      // iic device address.
+       ADDRESS_1               0x71
+       ADDRESS_2               0x72
+       ADDRESS_3               0x73
+*/
+DFRobot_OxygenSensor Oxygen;
+
+
+//Passive Buzzer Initialization
+#define NOTE_C5  523
+#define NOTE_E5 659
+int melody[] = {NOTE_C5,NOTE_E5,NOTE_C5}; //NOTE_C5 is the alarm sound + NOTE_E5 is the operating sound
+int duration = 500; //500 miliseconds
+int buzzerPin = 8;
+
+//LED Initialization
+int ledPin = 9; 
+
+//SD Card Initialization
+#include <SD.h>
+#include <SPI.h>
+File dataFile;  
+                
+
+
+void setup() {
+
+  //lcd display
+  lcd.begin(16,2);
+  
+
+ //led
+  pinMode(ledPin, OUTPUT);
+
+  //general serial monitor
+  Serial.begin(9600);
+
+
+  //oxygen sensor
+  Oxygen.begin(Oxygen_IICAddress);
+
+  //humidity sensor
+  dht.begin();
+
+  //passive buzzer
+  pinMode(buzzerPin, OUTPUT);
+
+  //initialization sound
+  tone(buzzerPin, melody[2],500);
+  
+  //alarm system
+  if (SMART_ALARM) ALARM_ON = false;     // make sure the alarm system off during initialization
+
+
+  //SD Card
+  SD.begin();
+  File dataFile = SD.open("TRY.csv",FILE_WRITE);  //could create all kinds of files (csv, txt, etc)
+  if (dataFile) {
+    dataFile.println("%O2,Temperature(C),Humidity(%)");  //print the parameters' name on each column of the file
+    Serial.println("%O2,Temperature(C),Humidity(%)");
+    dataFile.close();
+  } 
+  
+
+}
+
+
+void loop() {
+
+
+  delay (500);
+
+  //operate the oxygen sensor
+  float oxygenData = Oxygen.ReadOxygenData(COLLECT_NUMBER);
+
+  //operate the humidity sensor
+  float humidityData = dht.readHumidity();
+  float temperatureData = dht.readTemperature();
+
+
+  //display data on lcd screen
+  lcd.setCursor(0,0);
+  lcd.print("%O2 = ");
+  lcd.print(oxygenData);
+  lcd.setCursor(0,1);
+  lcd.print("h=");
+  lcd.print(humidityData);
+  lcd.print(" t=");
+  lcd.print(temperatureData); 
+  lcd.print("C");
+
+  //Open the txt file with serial monitor to logging data 
+  File dataFile = SD.open("TRY.csv",FILE_WRITE);
+  if (dataFile) {
+    Serial.print(oxygenData);
+    Serial.print(",");
+    Serial.print(temperatureData);
+    Serial.print(",");
+    Serial.print(humidityData);
+    Serial.println();           //make sure to print on the next row after every loop
+
+    dataFile.print(oxygenData);
+    dataFile.print(",");
+    dataFile.print(temperatureData);
+    dataFile.print(",");
+    dataFile.print(humidityData);
+    dataFile.println();
+    dataFile.close(); 
+  }
+  else
+    Serial.println("error opening TRY.csv");  //please always make sure the file name is same as all the SD.open() line
+  
+
+  //Alarm system
+  //Sound the passive buzzer and illuminate the red LED if a certain % oxygen threshold is passed
+  if (SMART_ALARM && oxygenData <= OXYGEN_LVL_THRESHOLD) {
+    ALARM_ON = true;
+  }
+
+  if ( ALARM_ON && oxygenData > OXYGEN_LVL_THRESHOLD) {
+    digitalWrite(ledPin, HIGH);
+    
+    tone(buzzerPin, melody[1], duration);
+  } else {
+    digitalWrite(ledPin, LOW);
+    
+  }
+
+}
