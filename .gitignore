@@ -30,3 +30,4 @@
 *.exe
 *.out
 *.app
+git config --get remote.origin.url
